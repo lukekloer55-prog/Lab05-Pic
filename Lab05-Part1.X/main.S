@@ -21,6 +21,7 @@ CONFIG  WRT = OFF             ; Flash Program Memory Self Write Enable bits (Wri
 
 ; Config statements should precede project file includes.
 #include <xc.inc>
+    
     W_temp EQU 0x20
     Status_temp EQU 0x21
         
@@ -72,43 +73,42 @@ Setup:
     BCF 0x81,7				;Set Bit 7 Low to enable Pull-Up.
     BCF 0x81,6
     
-    Banksel PORTB
-    BCF PORTB,0
+    Banksel PORTB			;BANKSEL PORTB, Bank 0.
+    BCF PORTB,0				;Set Pin0 to be a VIL input.
     
     ;PORT C Setup
-    BANKSEL TRISC
-    CLRF TRISC
-    Banksel PORTC
-    CLRF PORTC
+    BANKSEL TRISC			;BANKSEL TRISC, Bank 1.
+    CLRF TRISC				;CLEAR TRISC, Sets all pins on PORTC as outputs.
+    Banksel PORTC			;BANKSEL PORTC, Bank 0.
+    CLRF PORTC				;CLEAR PORTC, sets all pins as VIL inputs, doesnt change anything just redundant.
     
-    Banksel INTCON 
-    BSF INTCON, 6
-    BSF INTCON, 4
-    BSF INTCON, 1
-    BSF INTCON, 7
+    Banksel INTCON			;BANKSEL INTCON, AnyBank.
+    BSF INTCON, 6			;SET Bit 6, Enables Peripheral Interupts
+    BSF INTCON, 4			;SET Bit 4, Enables External Interupts
+    BSF INTCON, 7			;SET Bit 7, Enables Global Interupts
 GOTO Main
 
 Main:
-MOVLW 0x01
-XORWF PORTA, 1
+MOVLW 0x01				;Move the value 1 into the working register.
+XORWF PORTA, 1				;Toggle Bit 0 on PORTA for diagnostic bit.
 GOTO Main
     
 ISRHandler:
-    MOVWF W_temp
-    SWAPF STATUS,W
-    MOVWF Status_temp
-    BANKSEL INTCON
-    BTFSC INTCON,1
-    GOTO InteruptRB0
+    MOVWF W_temp			;Move the working register into a working temp register to store main's current working register.
+    SWAPF STATUS,W			;Swap Status into the working register. Swap does not altar the selection bits.
+    MOVWF Status_temp			;Move the status into a status temp register to store main's status working register.
+    BANKSEL INTCON			;BANKSEL INTCON, AnyBank.
+    BTFSC INTCON,1			;Bit check bit 1, if set execute the next instruction.
+    GOTO InteruptRB0			;GOTO the Handler for the interupt. 
 LeaveISR:
-    SWAPF Status_temp,W
-    MOVWF STATUS
-    SWAPF W_temp,F
-    SWAPF W_temp,W
-    RETFIE
+    SWAPF Status_temp,W			;Swap Status temp back into the working register. Swaps do not altar the selection bits.
+    MOVWF STATUS			;Move status back into the main status register to restore its original states.
+    SWAPF W_temp,F			;Swap working temp register in it's register to have it ready to swap back. This swap makes the format of the bits correct to be swapped again.
+    SWAPF W_temp,W			;Swap the working temp back into the main working register, the swap does not altar the selection bits.
+    RETFIE				;Return from the interrupt to the address that was interrupted, also reenables global interupts on return.
 
 InteruptRB0:
-    BANKSEL PORTC
-    INCF PORTC
-    BCF INTCON,1
-    GOTO LeaveISR
+    BANKSEL PORTC			;BANKSEL PORTC, bank 0.
+    INCF PORTC				;INCREMENT PORTC
+    BCF INTCON,1			;CLEAR the external interrupt flag.
+    GOTO LeaveISR			;GOTO Leave ISR and recover all the main registers into their original state.
