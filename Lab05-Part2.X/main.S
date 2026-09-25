@@ -41,87 +41,108 @@ PSECT isrVect,class=CODE,delta=2
 PSECT code,class=CODE,delta=2
 
 ; Add device setup here
-Setup:  
-    ;Setup PORTA and disable unnecessary features.
-    BANKSEL ANSEL
-    CLRF ANSEL				;Clear ANSEL to set all pins to digital I/O
-    BANKSEL TRISA			;Move the value into the working register ready to be moved into the register.
-    CLRF TRISA				;Move the value into TRISA, to enable all pins as outputs.
-    BANKSEL PORTA   
-    CLRF PORTA				;Clear PORTA to set the I/0 pins to read vin low.
-    
-    ;Setup PORTB and disable unnecessary features.
-    BCF 0x03,5				;Set Bank 0
-    BCF 0x03,6				;Set Bank 0
-    MOVLW 0xFF				;Set all bits in PORTB high, to enable inputs. This is not needed as the bits will be changed later, but just in there for setup.
-    MOVWF 0x06				;Move it from the work register to the actual PortB register
-    CLRF 0x17				;Set all low for ccp to be disabled.
-    
-    BSF 0x03,5				;Set Bank 1
-    BCF 0x03,6				;Set Bank 1
-    MOVLW 0xFF				;Set the working register as a 0F to be moved into the TRISB to make all the top 4 bits low to enable outputs on the top 4 pins, and high on the bottom 4 bits to enable inputs on those pins.
-    MOVWF 0x86				;Move all the bits into the register to enable and disable the wanted states for outputs and inputs.
-    
-    BCF 0x03,5				;Set Bank 2
-    BSF 0x03,6				;Set Bank 2
-    BSF 0x09,1				;Set Bit 1 High for original state to be enabled.
-    
-    BSF 0x03,5				;Set Bank 3
-    BSF 0x03,6				;Set Bank 3
-    CLRF 0x89				;Set all low for digital I/O Enabled.
-    
-    Banksel PORTB
-    BCF PORTB,0
-    BCF PORTB,4
-    
-    Banksel IOCB
-    BSF IOCB,4				;Set bit 4 high to enable Interupt on change for RB4
-    
-    ;PORT C Setup
-    BANKSEL TRISC
-    CLRF TRISC
-    Banksel PORTC
-    CLRF PORTC
-    
-    Banksel INTCON 
-    BSF INTCON, 6
-    BSF INTCON, 4
-    BSF INTCON, 3
-    BSF INTCON, 7
-GOTO Main
+Setup:
+    ;Setup PORTA and disable its analog input functions.
+    BANKSEL ANSEL           ;Select the bank containing ANSEL.
+    CLRF ANSEL              ;Disable analog input functions controlled by ANSEL.
+    BANKSEL TRISA           ;Select Bank 1 to access TRISA.
+    CLRF TRISA              ;Clear TRISA to configure available PORTA pins as outputs.
+    BANKSEL PORTA           ;Select Bank 0 to access PORTA.
+    CLRF PORTA              ;Clear the PORTA output latch to drive its outputs low.
+
+    ;Setup PORTB and disable CCP1.
+    BCF 0x03,5              ;Select Bank 0 with the following instruction.
+    BCF 0x03,6
+    MOVLW 0xFF              ;Load the working register with all bits high.
+    MOVWF 0x06              ;Write 0xFF to the PORTB output latch; this does not set pin direction.
+    CLRF 0x17               ;Clear CCP1CON to disable the CCP1 module.
+
+    ;Configure PORTB pins as inputs.
+    BSF 0x03,5              ;Select Bank 1 with the following instruction.
+    BCF 0x03,6
+    MOVLW 0xFF              ;Load the working register with all bits high.
+    MOVWF 0x86              ;Write 0xFF to TRISB to configure all PORTB pins as inputs.
+
+    ;Set the Timer1 gate source selection bit.
+    BCF 0x03,5              ;Select Bank 2 with the following instruction.
+    BSF 0x03,6
+    BSF 0x09,1              ;Set T1GSS in CM2CON1; this is not a PORTB interrupt-enable bit.
+
+    ;Disable PORTB analog input functions.
+    BSF 0x03,5              ;Select Bank 3 with the following instruction.
+    BSF 0x03,6
+    CLRF 0x89               ;Clear ANSELH to enable digital input functions on PORTB analog pins.
+
+    ;Select the active edge for the RB0 external interrupt.
+    BANKSEL OPTION_REG      ;Select the bank containing OPTION_REG.
+    BCF OPTION_REG,6        ;Clear INTEDG to trigger the RB0 interrupt on a falling edge.
+
+    ;Clear the RB0 and RB4 output-latch bits.
+    Banksel PORTB           ;Select Bank 0 to access PORTB.
+    BCF PORTB,0             ;Clear the RB0 latch bit, RB0 remains configured as an input.
+    BCF PORTB,4             ;Clear the RB4 latch bit, RB4 remains configured as an input.
+
+    ;Enable interrupt-on-change detection for RB4.
+    Banksel IOCB            ;Select the bank containing IOCB.
+    BSF IOCB,4              ;Set bit 4 to enable interrupt-on-change detection on RB4.
+
+    ;Setup PORTC as outputs and clear its output latch.
+    BANKSEL TRISC           ;Select Bank 1 to access TRISC.
+    CLRF TRISC              ;Clear TRISC to configure all PORTC pins as outputs.
+    Banksel PORTC           ;Select Bank 0 to access PORTC.
+    CLRF PORTC              ;Clear the PORTC output latch to drive its outputs low.
+
+    ;Enable the required interrupt controls.
+    Banksel INTCON          ;Select a bank for INTCON, which is accessible in every bank.
+    BSF INTCON, 6           ;Enable individually enabled peripheral interrupts.
+    BSF INTCON, 4           ;Enable the RB0 external interrupt.
+    BSF INTCON, 3           ;Enable PORTB interrupt-on-change interrupts.
+    BSF INTCON, 7           ;Enable global interrupt handling.
+
+    GOTO Main               ;Jump to the main program loop.
 
 Main:
-MOVLW 0x01
-XORWF PORTA, 1
-GOTO Main
-    
+    ;Toggle PORTA bit 0 continuously as a diagnostic output.
+    MOVLW 0x01              ;Load the working register with a mask for bit 0.
+    XORWF PORTA, 1          ;Toggle PORTA bit 0 and store the result back in PORTA.
+    GOTO Main               ;Repeat the main program loop.
+
 ISRHandler:
-    MOVWF W_temp
-    SWAPF STATUS,W
-    MOVWF Status_temp
-    BANKSEL PORTB
-    MOVF PORTB,0
-    MOVWF Portbsnapshot
-    BANKSEL INTCON
-    BTFSC INTCON,1
-    GOTO InteruptRB0
-    BTFSC INTCON,0
-    GOTO InteruptRB4
+    ;Save the interrupted program's working register and STATUS.
+    MOVWF W_temp            ;Save the working register before using it in the interrupt handler.
+    SWAPF STATUS,W          ;Copy STATUS into W with its nibbles swapped without changing STATUS flags.
+    MOVWF Status_temp       ;Save the swapped STATUS value for restoration before returning.
+
+    ;Read PORTB to acknowledge the mismatch and save the pin states.
+    BANKSEL PORTB           ;Select Bank 0 to access PORTB.
+    MOVF PORTB,0            ;Read PORTB into W to end the interrupt-on-change mismatch condition.
+    MOVWF Portbsnapshot     ;Save the PORTB reading in Portbsnapshot.
+
+    ;Check the interrupt flags, checking RB0 first.
+    BANKSEL INTCON          ;Select a bank for the interrupt control register.
+    BTFSC INTCON,1          ;Check bit 1, skip the next instruction if the RB0 interrupt flag is clear.
+    GOTO InteruptRB0        ;Jump to the RB0 handler when its interrupt flag is set.
+    BTFSC INTCON,0          ;Check bit 0, skip the next instruction if the PORTB-change flag is clear.
+    GOTO InteruptRB4        ;Jump to the RB4 handler when the PORTB-change flag is set.
+
 LeaveISR:
-    SWAPF Status_temp,W
-    MOVWF STATUS
-    SWAPF W_temp,F
-    SWAPF W_temp,W
-    RETFIE
+    ;Restore the interrupted program's STATUS and working register.
+    SWAPF Status_temp,W     ;Swap the saved STATUS nibbles back into their original order in W.
+    MOVWF STATUS            ;Restore the saved STATUS flags and bank-selection bits.
+    SWAPF W_temp,F          ;Swap the saved W nibbles in place without changing STATUS flags.
+    SWAPF W_temp,W          ;Swap again to restore the original W value without changing STATUS flags.
+    RETFIE                  ;Return to the interrupted program and re-enable global interrupts.
 
 InteruptRB0:
-    BANKSEL PORTC
-    CLRF PORTC
-    BCF INTCON,1
-    GOTO LeaveISR
-    
+    ;Handle the RB0 external interrupt by clearing PORTC.
+    BANKSEL PORTC           ;Select Bank 0 to access PORTC.
+    CLRF PORTC              ;Clear PORTC to reset the displayed output value to zero.
+    BCF INTCON,1            ;Clear the RB0 external interrupt flag.
+    GOTO LeaveISR           ;Jump to the register restoration code before returning.
+
 InteruptRB4:
-    BANKSEL PORTC
-    INCF PORTC
-    BCF INTCON,0
-    GOTO LeaveISR
+    ;Handle the PORTB-change interrupt by incrementing PORTC.
+    BANKSEL PORTC           ;Select Bank 0 to access PORTC.
+    INCF PORTC              ;Increment PORTC 
+    BCF INTCON,0            ;Clear the PORTB-change flag after the PORTB read at interrupt entry.
+    GOTO LeaveISR           ;Jump to the register restoration code before returning.
